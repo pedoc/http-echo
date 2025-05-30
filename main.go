@@ -93,9 +93,13 @@ func httpEcho(v string) http.HandlerFunc {
 			if r.TLS != nil {
 				scheme = "https"
 			}
-			fmt.Fprintf(w, "[%s] [%s://%s%s]\n\n", r.Method, scheme, r.Host, r.RequestURI)
+
+			requestInfo := fmt.Sprintf("[%s] [%s://%s%s]\n\n", r.Method, scheme, r.Host, r.RequestURI)
+			fmt.Fprint(w, requestInfo)
+			fmt.Print(requestInfo)
 
 			fmt.Fprintln(w, "[Headers]")
+			fmt.Println("[Headers]")
 			names := make([]string, 0, len(r.Header))
 			for name := range r.Header {
 				names = append(names, name)
@@ -103,17 +107,24 @@ func httpEcho(v string) http.HandlerFunc {
 			sort.Strings(names)
 			for _, name := range names {
 				for _, value := range r.Header[name] {
-					fmt.Fprintf(w, "%s: %s\n", name, value)
+					headerInfo := fmt.Sprintf("%s: %s\n", name, value)
+					fmt.Fprint(w, headerInfo)
+					fmt.Print(headerInfo)
 				}
 			}
 
 			fmt.Fprintln(w, "\n[Body]")
+			fmt.Println("\n[Body]")
 			if r.Body != nil {
 				body, err := io.ReadAll(r.Body)
 				if err != nil {
-					fmt.Fprintf(w, "Read body error: %v\n", err)
+					errorInfo := fmt.Sprintf("Read body error: %v\n", err)
+					fmt.Fprint(w, errorInfo)
+					fmt.Print(errorInfo)
 				} else {
-					fmt.Fprintln(w, string(body))
+					bodyInfo := string(body) + "\n"
+					fmt.Fprint(w, bodyInfo)
+					fmt.Print(bodyInfo)
 				}
 			}
 		}
