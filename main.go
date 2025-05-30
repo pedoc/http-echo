@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"time"
 
 	"github.com/hashicorp/http-echo/version"
@@ -33,10 +35,10 @@ func main() {
 	}
 
 	// Validation
-	if *textFlag == "" {
-		fmt.Fprintln(stderrW, "Missing -text option!")
-		os.Exit(127)
-	}
+	// if *textFlag == "" {
+	// 	fmt.Fprintln(stderrW, "Missing -text option!")
+	// 	os.Exit(127)
+	// }
 
 	args := flag.Args()
 	if len(args) > 0 {
@@ -84,7 +86,37 @@ func main() {
 
 func httpEcho(v string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, v)
+		if *textFlag != "" {
+			fmt.Fprintln(w, v)
+		} else {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			fmt.Fprintf(w, "[%s] [%s://%s%s]\n\n", r.Method, scheme, r.Host, r.RequestURI)
+
+			fmt.Fprintln(w, "[Headers]")
+			names := make([]string, 0, len(r.Header))
+			for name := range r.Header {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				for _, value := range r.Header[name] {
+					fmt.Fprintf(w, "%s: %s\n", name, value)
+				}
+			}
+
+			fmt.Fprintln(w, "\n[Body]")
+			if r.Body != nil {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					fmt.Fprintf(w, "Read body error: %v\n", err)
+				} else {
+					fmt.Fprintln(w, string(body))
+				}
+			}
+		}
 	}
 }
 
