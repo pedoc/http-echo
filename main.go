@@ -93,6 +93,9 @@ func httpEcho(v string) http.HandlerFunc {
 			if r.TLS != nil {
 				scheme = "https"
 			}
+			clientInfo := fmt.Sprintf("From: %s\n\n", r.RemoteAddr)
+			fmt.Fprint(w, clientInfo)
+			fmt.Print(clientInfo)
 
 			requestInfo := fmt.Sprintf("[%s] [%s://%s%s]\n\n", r.Method, scheme, r.Host, r.RequestURI)
 			fmt.Fprint(w, requestInfo)
