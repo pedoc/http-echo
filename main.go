@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/http-echo/version"
@@ -23,6 +25,9 @@ var (
 	// stdoutW and stderrW are for overriding in test.
 	stdoutW = os.Stdout
 	stderrW = os.Stderr
+
+	totalRequests int64 // 总请求数
+	activeConns   int64 // 当前活跃连接数
 )
 
 func main() {
@@ -53,14 +58,20 @@ func main() {
 	// Health endpoint
 	mux.HandleFunc("/health", withAppHeaders(httpHealth()))
 
+	// 用自定义listener包装，统计活跃连接数
+	ln, err := net.Listen("tcp", *listenFlag)
+	if err != nil {
+		log.Fatalf("[ERR] failed to listen: %s", err)
+	}
+	ln = &countingListener{Listener: ln}
+
 	server := &http.Server{
-		Addr:    *listenFlag,
 		Handler: mux,
 	}
 	serverCh := make(chan struct{})
 	go func() {
 		log.Printf("[INFO] server is listening on %s\n", *listenFlag)
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		if err := server.Serve(ln); err != http.ErrServerClosed {
 			log.Fatalf("[ERR] server exited with: %s", err)
 		}
 		close(serverCh)
@@ -86,6 +97,7 @@ func main() {
 
 func httpEcho(v string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&totalRequests, 1)
 		if *textFlag != "" {
 			fmt.Fprintln(w, v)
 		} else {
@@ -96,6 +108,13 @@ func httpEcho(v string) http.HandlerFunc {
 			clientInfo := fmt.Sprintf("From: %s\n\n", r.RemoteAddr)
 			fmt.Fprint(w, clientInfo)
 			fmt.Print(clientInfo)
+
+			// 新增：打印当前活跃连接数和总请求数
+			curConns := atomic.LoadInt64(&activeConns)
+			totalReq := atomic.LoadInt64(&totalRequests)
+			statInfo := fmt.Sprintf("Active Connections: %d\nTotal Requests: %d\n\n", curConns, totalReq)
+			fmt.Fprint(w, statInfo)
+			fmt.Print(statInfo)
 
 			requestInfo := fmt.Sprintf("[%s] [%s://%s%s]\n\n", r.Method, scheme, r.Host, r.RequestURI)
 			fmt.Fprint(w, requestInfo)
@@ -138,4 +157,31 @@ func httpHealth() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"status":"ok"}`)
 	}
+}
+
+// 统计活跃连接数的Listener和Conn包装
+
+type countingListener struct {
+	net.Listener
+}
+
+func (l *countingListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	atomic.AddInt64(&activeConns, 1)
+	return &countingConn{Conn: c}, nil
+}
+
+type countingConn struct {
+	net.Conn
+	closed int32
+}
+
+func (c *countingConn) Close() error {
+	if atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
+		atomic.AddInt64(&activeConns, -1)
+	}
+	return c.Conn.Close()
 }
