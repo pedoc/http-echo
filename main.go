@@ -26,12 +26,15 @@ var (
 	stdoutW = os.Stdout
 	stderrW = os.Stderr
 
-	totalRequests int64 // 总请求数
-	activeConns   int64 // 当前活跃连接数
+	totalRequests  int64 // total number of requests
+	activeConns    int64 // current active connections
+	totalAcceptErr int64 // total number of accept errors
 )
 
 func main() {
 	flag.Parse()
+
+	log.Printf("[INFO] startup params: listen=%s, text=%s, version=%v, args=%v", *listenFlag, *textFlag, *versionFlag, flag.Args())
 
 	// Asking for the version?
 	if *versionFlag {
@@ -58,7 +61,7 @@ func main() {
 	// Health endpoint
 	mux.HandleFunc("/health", withAppHeaders(httpHealth()))
 
-	// 用自定义listener包装，统计活跃连接数
+	// Use a custom listener wrapper to count active connections
 	ln, err := net.Listen("tcp", *listenFlag)
 	if err != nil {
 		log.Fatalf("[ERR] failed to listen: %s", err)
@@ -109,7 +112,7 @@ func httpEcho(v string) http.HandlerFunc {
 			fmt.Fprint(w, clientInfo)
 			fmt.Print(clientInfo)
 
-			// 新增：打印当前活跃连接数和总请求数
+			// Only display current active connections and total requests
 			curConns := atomic.LoadInt64(&activeConns)
 			totalReq := atomic.LoadInt64(&totalRequests)
 			statInfo := fmt.Sprintf("Active Connections: %d\nTotal Requests: %d\n\n", curConns, totalReq)
@@ -159,7 +162,7 @@ func httpHealth() http.HandlerFunc {
 	}
 }
 
-// 统计活跃连接数的Listener和Conn包装
+// Listener and Conn wrappers for counting active connections
 
 type countingListener struct {
 	net.Listener
@@ -168,6 +171,8 @@ type countingListener struct {
 func (l *countingListener) Accept() (net.Conn, error) {
 	c, err := l.Listener.Accept()
 	if err != nil {
+		atomic.AddInt64(&totalAcceptErr, 1)
+		log.Printf("[ACCEPT ERR] %s (total: %d)", err.Error(), atomic.LoadInt64(&totalAcceptErr))
 		return nil, err
 	}
 	atomic.AddInt64(&activeConns, 1)
