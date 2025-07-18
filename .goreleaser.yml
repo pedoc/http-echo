@@ -2,8 +2,6 @@ version: 2
 
 builds:
   - id: http-echo
-    main: ./main.go
-    binary: http-echo
     goos:
       - windows
       - linux
